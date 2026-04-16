@@ -46,6 +46,7 @@ export function collectWhatsAppStatusIssues(
     readAccount: readWhatsAppAccountStatus,
     collectIssues: ({ account, accountId, issues }) => {
       const linked = account.linked === true;
+      const linkedKnown = typeof account.linked === "boolean";
       const running = account.running === true;
       const connected = account.connected === true;
       const reconnectAttempts =
@@ -55,7 +56,7 @@ export function collectWhatsAppStatusIssues(
       const lastError = asString(account.lastError);
       const healthState = asString(account.healthState);
 
-      if (!linked) {
+      if (linkedKnown && !linked) {
         issues.push({
           channel: "whatsapp",
           accountId,
@@ -63,6 +64,10 @@ export function collectWhatsAppStatusIssues(
           message: "Not linked (no WhatsApp Web session).",
           fix: `Run: ${formatCliCommand("openclaw channels login")} (scan QR on the gateway host).`,
         });
+        return;
+      }
+
+      if (!linked) {
         return;
       }
 

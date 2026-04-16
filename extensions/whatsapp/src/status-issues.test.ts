@@ -65,4 +65,15 @@ describe("collectWhatsAppStatusIssues", () => {
       }),
     ]);
   });
+
+  it("does not report a not-linked auth issue when linked state is unknown", () => {
+    const issues = collectWhatsAppStatusIssues([
+      {
+        accountId: "default",
+        enabled: true,
+      },
+    ]);
+
+    expect(issues).toEqual([]);
+  });
 });

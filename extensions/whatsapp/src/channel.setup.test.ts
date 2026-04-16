@@ -5,6 +5,7 @@ import { createQueuedWizardPrompter } from "../../../test/helpers/plugins/setup-
 import { whatsappApprovalAuth } from "./approval-auth.js";
 import { WHATSAPP_AUTH_UNSTABLE_CODE } from "./auth-store.js";
 import { whatsappPlugin } from "./channel.js";
+import { whatsappSetupPlugin } from "./channel.setup.js";
 import { checkWhatsAppHeartbeatReady } from "./heartbeat.js";
 import type { OpenClawConfig } from "./runtime-api.js";
 import { finalizeWhatsAppSetup } from "./setup-finalize.js";
@@ -132,7 +133,10 @@ function createSeparatePhoneHarness(params: { selectValues: string[]; textValues
 }
 
 async function runSeparatePhoneFlow(params: { selectValues: string[]; textValues?: string[] }) {
-  hoisted.pathExists.mockResolvedValue(true);
+  hoisted.readWebAuthExistsForDecision.mockResolvedValue({
+    outcome: "stable",
+    exists: true,
+  });
   const harness = createSeparatePhoneHarness({
     selectValues: params.selectValues,
     textValues: params.textValues,
@@ -197,7 +201,10 @@ describe("whatsapp setup wizard", () => {
   });
 
   it("enables allowlist self-chat mode for personal-phone setup", async () => {
-    hoisted.pathExists.mockResolvedValue(true);
+    hoisted.readWebAuthExistsForDecision.mockResolvedValue({
+      outcome: "stable",
+      exists: true,
+    });
     const harness = createWhatsAppPersonalPhoneHarness(createQueuedWizardPrompter);
 
     const result = await runConfigureWithHarness({
@@ -208,7 +215,10 @@ describe("whatsapp setup wizard", () => {
   });
 
   it("forces wildcard allowFrom for open policy without allowFrom follow-up prompts", async () => {
-    hoisted.pathExists.mockResolvedValue(true);
+    hoisted.readWebAuthExistsForDecision.mockResolvedValue({
+      outcome: "stable",
+      exists: true,
+    });
     const harness = createSeparatePhoneHarness({
       selectValues: ["separate", "open"],
     });
@@ -222,7 +232,10 @@ describe("whatsapp setup wizard", () => {
   });
 
   it("runs WhatsApp login when not linked and user confirms linking", async () => {
-    hoisted.pathExists.mockResolvedValue(false);
+    hoisted.readWebAuthExistsForDecision.mockResolvedValue({
+      outcome: "stable",
+      exists: false,
+    });
     const harness = createWhatsAppLinkingHarness(createQueuedWizardPrompter);
     const runtime = createRuntime();
 
@@ -235,7 +248,10 @@ describe("whatsapp setup wizard", () => {
   });
 
   it("skips relink note when already linked and relink is declined", async () => {
-    hoisted.pathExists.mockResolvedValue(true);
+    hoisted.readWebAuthExistsForDecision.mockResolvedValue({
+      outcome: "stable",
+      exists: true,
+    });
     const harness = createSeparatePhoneHarness({
       selectValues: ["separate", "disabled"],
     });
@@ -249,7 +265,10 @@ describe("whatsapp setup wizard", () => {
   });
 
   it("shows follow-up login command note when not linked and linking is skipped", async () => {
-    hoisted.pathExists.mockResolvedValue(false);
+    hoisted.readWebAuthExistsForDecision.mockResolvedValue({
+      outcome: "stable",
+      exists: false,
+    });
     const harness = createSeparatePhoneHarness({
       selectValues: ["separate", "disabled"],
     });
@@ -259,6 +278,34 @@ describe("whatsapp setup wizard", () => {
     });
 
     expectWhatsAppLoginFollowup(harness);
+  });
+
+  it("skips the QR decision when auth state is still stabilizing", async () => {
+    hoisted.readWebAuthExistsForDecision.mockResolvedValue({
+      outcome: "unstable",
+    });
+    const harness = createSeparatePhoneHarness({
+      selectValues: ["separate", "disabled"],
+    });
+
+    await runConfigureWithHarness({
+      harness,
+    });
+
+    expect(hoisted.loginWeb).not.toHaveBeenCalled();
+    expect(harness.note).toHaveBeenCalledWith(
+      expect.stringContaining("WhatsApp auth state is still stabilizing."),
+      "WhatsApp linking",
+    );
+    expect(harness.note).not.toHaveBeenCalledWith(
+      expect.stringContaining("openclaw channels login"),
+      "WhatsApp",
+    );
+    expect(harness.select).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "WhatsApp phone setup",
+      }),
+    );
   });
 
   it("heartbeat readiness uses configured defaultAccount for active listener checks", async () => {
@@ -309,8 +356,33 @@ describe("whatsapp setup wizard", () => {
     expect(result).toEqual({ ok: false, reason: WHATSAPP_AUTH_UNSTABLE_CODE });
   });
 
-  it("does not treat unstable auth as configured in generic plugin config checks", async () => {
-    hoisted.readWebAuthExistsForDecision.mockResolvedValueOnce({ outcome: "unstable" as const });
+  it("heartbeat readiness still supports the legacy webAuthExists dep seam", async () => {
+    const result = await checkWhatsAppHeartbeatReady({
+      cfg: {
+        channels: {
+          whatsapp: {
+            accounts: {
+              default: {
+                authDir: "/tmp/default",
+              },
+            },
+          },
+        },
+      } as OpenClawConfig,
+      deps: {
+        webAuthExists: async () => true,
+        hasActiveWebListener: () => true,
+      },
+    });
+
+    expect(result).toEqual({ ok: true, reason: "ok" });
+  });
+
+  it("keeps generic plugin config checks configured when auth reads time out", async () => {
+    hoisted.readWebAuthExistsBestEffort.mockResolvedValue({
+      exists: false,
+      timedOut: true,
+    });
 
     await expect(
       whatsappPlugin.config.isConfigured?.(
@@ -319,6 +391,15 @@ describe("whatsapp setup wizard", () => {
         } as never,
         {} as never,
       ),
-    ).resolves.toBe(false);
+    ).resolves.toBe(true);
+
+    await expect(
+      whatsappSetupPlugin.config.isConfigured?.(
+        {
+          authDir: "/tmp/work",
+        } as never,
+        {} as never,
+      ),
+    ).resolves.toBe(true);
   });
 });

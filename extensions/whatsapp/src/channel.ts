@@ -49,6 +49,12 @@ const loadWhatsAppChannelReactAction = createLazyRuntimeModule(
   () => import("./channel-react-action.js"),
 );
 
+function resolveConfiguredStateOnAuthTimeout(params: { snapshotConfigured?: boolean }): boolean {
+  // For observational status timeouts, preserve the last known configured bit when present.
+  // Otherwise fall back to the account-derived channel-configured state for WhatsApp.
+  return params.snapshotConfigured ?? true;
+}
+
 function parseWhatsAppExplicitTarget(raw: string) {
   const normalized = normalizeWhatsAppTarget(raw);
   if (!normalized) {
@@ -78,8 +84,8 @@ export const whatsappPlugin: ChannelPlugin<ResolvedWhatsAppAccount> =
         isConfigured: async (account) => {
           const auth = await (
             await loadWhatsAppChannelRuntime()
-          ).readWebAuthExistsForDecision(account.authDir);
-          return auth.outcome === "stable" && auth.exists;
+          ).readWebAuthExistsBestEffort(account.authDir);
+          return auth.exists || auth.timedOut;
         },
       }),
       agentTools: () => [createWhatsAppLoginTool()],
@@ -202,9 +208,10 @@ export const whatsappPlugin: ChannelPlugin<ResolvedWhatsAppAccount> =
                 ? undefined
                 : auth.linked;
           const configured = auth.timedOut
-            ? typeof snapshot.configured === "boolean"
-              ? snapshot.configured
-              : true
+            ? resolveConfiguredStateOnAuthTimeout({
+                snapshotConfigured:
+                  typeof snapshot.configured === "boolean" ? snapshot.configured : undefined,
+              })
             : typeof linked === "boolean"
               ? linked
               : auth.linked;
@@ -238,7 +245,7 @@ export const whatsappPlugin: ChannelPlugin<ResolvedWhatsAppAccount> =
             accountId: account.accountId,
             name: account.name,
             enabled: account.enabled,
-            configured: true,
+            configured: auth.timedOut ? resolveConfiguredStateOnAuthTimeout({}) : auth.exists,
             extra: {
               ...(auth.timedOut ? {} : { linked: auth.exists }),
               connected: runtime?.connected ?? false,

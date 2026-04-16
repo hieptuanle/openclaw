@@ -104,8 +104,10 @@ export type { ReplyPayload } from "../auto-reply/reply-payload.js";
 export type { AllowlistMatch } from "../channels/allowlist-match.js";
 export type {
   BaseProbeResult,
+  ChannelAuthExistsDecision,
   ChannelAccountSnapshot,
   ChannelGroupContext,
+  ChannelHeartbeatDeps,
   ChannelMessageActionName,
   ChannelMeta,
   ChannelSetupInput,
