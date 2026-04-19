@@ -507,7 +507,7 @@ describe("callGateway url resolution", () => {
           },
           start() {
             sawYieldBeforeStart = preConnectYieldRan;
-            void opts.onHelloOk?.({
+            opts.onHelloOk?.({
               features: {
                 methods: helloMethods ?? [],
                 events: [],
